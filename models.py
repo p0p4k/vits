@@ -13,6 +13,7 @@ from torch.nn import Conv1d, ConvTranspose1d, AvgPool1d, Conv2d
 from torch.nn.utils import weight_norm, remove_weight_norm, spectral_norm
 from commons import init_weights, get_padding
 
+from duration_predictor.durations_predictors import DP
 
 class StochasticDurationPredictor(nn.Module):
   def __init__(self, in_channels, filter_channels, kernel_size, p_dropout, n_flows=4, gin_channels=0):
@@ -448,10 +449,45 @@ class SynthesizerTrn(nn.Module):
     self.enc_q = PosteriorEncoder(spec_channels, inter_channels, hidden_channels, 5, 1, 16, gin_channels=gin_channels)
     self.flow = ResidualCouplingBlock(inter_channels, hidden_channels, 5, 1, 4, gin_channels=gin_channels)
 
+    @dataclass
+    class DP_params:
+      name: str
+      n_channels: int
+      n_spks: int
+      spk_emb_dim: int
+      filter_channels: int
+      kernel_size: int
+      p_dropout: float
+      sigma_min: float
+      n_steps: int
+
+    fm_duration_predictor_params = DP_params(
+      name="flow_matching",
+      n_channels=hidden_channels,
+      n_spks=n_speakers,
+      spk_emb_dim=gin_channels,
+      filter_channels=192,
+      kernel_size=3,
+      p_dropout=0.5,
+      sigma_min=1e-4,
+      n_steps=10
+    )    
+    det_duration_predictor_params = DP_params(
+      name="deterministic",
+      n_channels=hidden_channels,
+      n_spks=n_speakers,
+      spk_emb_dim=gin_channels,
+      filter_channels=256,
+      kernel_size=3,
+      p_dropout=0.5,
+    )  
+    
     if use_sdp:
-      self.dp = StochasticDurationPredictor(hidden_channels, 192, 3, 0.5, 4, gin_channels=gin_channels)
+      # self.dp = StochasticDurationPredictor(hidden_channels, 192, 3, 0.5, 4, gin_channels=gin_channels)
+      self.dp = DP(fm_duration_predictor_params)
     else:
-      self.dp = DurationPredictor(hidden_channels, 256, 3, 0.5, gin_channels=gin_channels)
+      # self.dp = DurationPredictor(hidden_channels, 256, 3, 0.5, gin_channels=gin_channels)
+      self.dp = DP(det_duration_predictor_params)
 
     if n_speakers > 1:
       self.emb_g = nn.Embedding(n_speakers, gin_channels)
